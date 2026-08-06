@@ -6,26 +6,15 @@ import socket
 from asyncio.staggered import staggered_race
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Sequence, Type, Optional
+from typing import Callable, Sequence, Type
+
+from dns.asyncresolver import Resolver
+from dns.inet import af_for_address
 
 from . import status
 
 SocketAddress = tuple[str, int]
 Connection = tuple[asyncio.StreamReader, asyncio.StreamWriter]
-
-
-def af_by_address(domain: str) -> int | None:
-    try:
-        socket.inet_pton(socket.AF_INET, domain)
-        return socket.AF_INET
-    except Exception:
-        pass
-
-    try:
-        socket.inet_pton(socket.AF_INET6, domain)
-        return socket.AF_INET6
-    except Exception:
-        return None
 
 
 @dataclass
@@ -61,47 +50,6 @@ class Socks5AddressType(IntEnum):
     IPV4 = 1
     DOMAIN = 3
     IPV6 = 4
-
-
-class CustomSourceAddressResolver:
-    def __init__(self, resolver: "dns.asyncresolver.Resolver", connect_host_ipv4: str | None, connect_host_ipv6: str | None):
-        self.resolver = resolver
-        self.resolver_source: str | None = None
-        if connect_host_ipv4 is not None or connect_host_ipv6 is not None:
-            resolvers_by_af: dict[int, list[str]] = {socket.AF_INET: [], socket.AF_INET6: []}
-            for ns in self.resolver.nameservers:
-                resolvers_by_af[af_by_address(ns)].append(ns)
-
-            if resolvers_by_af[socket.AF_INET] and connect_host_ipv4 is not None:
-                self.resolver_source = connect_host_ipv4
-                self.resolver.nameservers = resolvers_by_af[socket.AF_INET]
-            elif resolvers_by_af[socket.AF_INET6] and connect_host_ipv6 is not None:
-                self.resolver_source = connect_host_ipv6
-                self.resolver.nameservers = resolvers_by_af[socket.AF_INET6]
-            else:
-                raise Exception("Resolver does not have any suitable nameservers!")
-
-    async def resolve_ipv4(self, domain):
-        answer = await self.resolver.resolve(
-            domain, "A", source=self.resolver_source
-        )
-        return [rr.address for rr in answer]
-
-    async def resolve_ipv6(self, domain):
-        answer = await self.resolver.resolve(
-            domain, "AAAA", source=self.resolver_source
-        )
-        return [rr.address for rr in answer]
-
-
-class DefaultAddressResolver:
-    async def resolve_ipv4(self, addr):
-        info = await asyncio.get_running_loop().getaddrinfo(addr, None, family=socket.AF_INET)
-        return list({item[4][0] for item in info})
-
-    async def resolve_ipv6(self, addr):
-        info = await asyncio.get_running_loop().getaddrinfo(addr, None, family=socket.AF_INET6)
-        return list({item[4][0] for item in info})
 
 
 class AsyncProxyHandler:
@@ -150,7 +98,7 @@ class AsyncProxyServer:
         listen_hosts: str | Sequence[str] = ("::", "0.0.0.0"),
         listen_port: int = 9876,
         traffic_stats: status.TrafficStats | None = None,
-        resolver: Optional["dns.asyncresolver.Resolver"] = None,
+        resolver: Resolver | None = None,
         connect_host_ipv4: str | None = None,
         connect_host_ipv6: str | None = None,
     ):
@@ -158,13 +106,34 @@ class AsyncProxyServer:
         self.listen_hosts = listen_hosts
         self.listen_port = listen_port
         self.traffic_stats = traffic_stats or status.SimpleTrafficStats()
-        self.resolver: DefaultAddressResolver | CustomSourceAddressResolver
-        if resolver:
-            self.resolver = CustomSourceAddressResolver(resolver, connect_host_ipv4, connect_host_ipv6)
-        else:
-            self.resolver = DefaultAddressResolver()
+        self.resolver = resolver or Resolver()
         self.connect_host_ipv4 = connect_host_ipv4
         self.connect_host_ipv6 = connect_host_ipv6
+        self.resolver_source: str | None = None
+        if self.connect_host_ipv4 is not None or self.connect_host_ipv6 is not None:
+            resolver_afs = [af_for_address(ns) for ns in self.resolver.nameservers]
+            if (
+                any(af == socket.AF_INET for af in resolver_afs)
+                and self.connect_host_ipv4 is not None
+            ):
+                self.resolver_source = self.connect_host_ipv4
+                self.resolver.nameservers = [
+                    ns
+                    for ns in self.resolver.nameservers
+                    if af_for_address(ns) == socket.AF_INET
+                ]
+            elif (
+                any(af == socket.AF_INET6 for af in resolver_afs)
+                and self.connect_host_ipv6 is not None
+            ):
+                self.resolver_source = self.connect_host_ipv6
+                self.resolver.nameservers = [
+                    ns
+                    for ns in self.resolver.nameservers
+                    if af_for_address(ns) == socket.AF_INET6
+                ]
+            else:
+                raise Exception("Resolver does not have any suitable nameservers!")
 
     async def run(self) -> None:
         server = await asyncio.start_server(
@@ -236,23 +205,33 @@ class AsyncProxyServer:
         domain, port = address
 
         result = GenericAddress()
-        af = af_by_address(domain)
-        if af == socket.AF_INET:
+        try:
+            socket.inet_pton(socket.AF_INET, domain)
             result.ipv4 = address
             return result
-        elif af == socket.AF_INET6:
+        except Exception:
+            pass
+
+        try:
+            socket.inet_pton(socket.AF_INET6, domain)
             result.ipv6 = address
             return result
+        except Exception:
+            pass
 
         if self.connect_host_ipv4 is None and self.connect_host_ipv6 is not None:
             ipv4_resolver = self.dummy_resolve()
         else:
-            ipv4_resolver = self.resolver.resolve_ipv4(domain)
+            ipv4_resolver = self.resolver.resolve(
+                domain, "A", source=self.resolver_source
+            )
 
         if self.connect_host_ipv4 is not None and self.connect_host_ipv6 is None:
             ipv6_resolver = self.dummy_resolve()
         else:
-            ipv6_resolver = self.resolver.resolve_ipv6(domain)
+            ipv6_resolver = self.resolver.resolve(
+                domain, "AAAA", source=self.resolver_source
+            )
 
         ipv4, ipv6 = await asyncio.gather(
             ipv4_resolver,
@@ -260,9 +239,9 @@ class AsyncProxyServer:
             return_exceptions=True,
         )
         if not isinstance(ipv4, BaseException) and ipv4:
-            result.ipv4 = (random.choice(ipv4), port)
+            result.ipv4 = (random.choice(ipv4).address, port)
         if not isinstance(ipv6, BaseException) and ipv6:
-            result.ipv6 = (random.choice(ipv6), port)
+            result.ipv6 = (random.choice(ipv6).address, port)
         return result
 
     async def resolve_address(

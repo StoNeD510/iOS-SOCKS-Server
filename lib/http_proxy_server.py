@@ -83,7 +83,7 @@ class AsyncHTTPProxyHandler(AsyncProxyHandler, BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(
                 HTTPStatus.BAD_GATEWAY,
-                "Unable to connect to host %s: %s: %s" % (address, type(e).__name__, e),
+                "Unable to connect to host %s: %s" % (address, e),
             )
             return
 
@@ -119,7 +119,7 @@ class AsyncHTTPProxyHandler(AsyncProxyHandler, BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(
                 HTTPStatus.BAD_GATEWAY,
-                "Unable to connect to host %s: %s: %s" % (address, type(e).__name__, e),
+                "Unable to connect to host %s: %s" % (address, e),
             )
             return
 
