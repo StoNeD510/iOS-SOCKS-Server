@@ -51,7 +51,7 @@ func (e *egress) refresh() NetInfo {
 		case ni.VPNActive:
 			e.log.Printf("egress: VPN %s active on phone, using default route (through VPN)", ni.VPNIf)
 		case idx > 0:
-			e.log.Printf("egress: pinned to cellular %s (%s)", name, ni.CellularIP)
+			e.log.Printf("egress: pinned to cellular %s (%s); iOS default route is %s", name, ni.CellularIP, ni.DefaultIf)
 		default:
 			e.log.Printf("egress: using phone's default route")
 		}

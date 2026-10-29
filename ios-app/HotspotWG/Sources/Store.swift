@@ -37,6 +37,7 @@ struct NetInfo: Codable {
     var wifiIp: String = ""
     var vpnActive: Bool = false
     var vpnIf: String = ""
+    var defaultIf: String = ""
 }
 
 struct PeerStatus: Codable {

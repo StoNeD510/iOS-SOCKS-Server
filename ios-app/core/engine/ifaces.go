@@ -16,6 +16,22 @@ type NetInfo struct {
 	WiFiIP      string `json:"wifi_ip"`    // en0 address, if associated to a network
 	VPNActive   bool   `json:"vpn_active"` // a utun/ipsec tunnel with an IPv4 address exists
 	VPNIf       string `json:"vpn_if"`
+	DefaultIf   string `json:"default_if"` // interface iOS routes internet traffic through
+}
+
+// routeSource returns the local address the OS would use to reach dst,
+// without sending anything (a connected UDP socket just picks a route).
+func routeSource(dst string) (netip.Addr, bool) {
+	c, err := net.Dial("udp", dst)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	defer c.Close()
+	ap, err := netip.ParseAddrPort(c.LocalAddr().String())
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return ap.Addr().Unmap(), true
 }
 
 func ifaceAddrs(ifc net.Interface) []netip.Addr {
@@ -66,25 +82,42 @@ func DetectNetInfo() NetInfo {
 		return ni
 	}
 	sort.Slice(ifs, func(i, j int) bool { return ifs[i].Name < ifs[j].Name })
+	var srcs []netip.Addr
+	if a, ok := routeSource("1.1.1.1:53"); ok {
+		srcs = append(srcs, a)
+	}
+	if a, ok := routeSource("[2606:4700:4700::1111]:53"); ok {
+		srcs = append(srcs, a)
+	}
+	type cell struct {
+		name string
+		idx  int
+		ip   netip.Addr
+	}
+	var cells []cell
 	for _, ifc := range ifs {
 		if ifc.Flags&net.FlagUp == 0 {
 			continue
 		}
 		addrs := ifaceAddrs(ifc)
 		name := ifc.Name
+		for _, a := range addrs {
+			for _, src := range srcs {
+				if a == src && ni.DefaultIf == "" {
+					ni.DefaultIf = name
+				}
+			}
+		}
 		switch {
 		case strings.HasPrefix(name, "bridge"):
 			if a, ok := firstUsable(addrs, true); ok && ni.HotspotIP == "" {
 				ni.HotspotIP = a.String()
 			}
 		case strings.HasPrefix(name, "pdp_ip"):
-			if ni.CellularIf != "" {
-				continue
-			}
 			if a, ok := firstUsable(addrs, true); ok {
-				ni.CellularIf, ni.CellularIP, ni.CellularIdx = name, a.String(), ifc.Index
+				cells = append(cells, cell{name, ifc.Index, a})
 			} else if a, ok := firstUsable(addrs, false); ok {
-				ni.CellularIf, ni.CellularIP, ni.CellularIdx = name, a.String(), ifc.Index
+				cells = append(cells, cell{name, ifc.Index, a})
 			}
 		case name == "en0":
 			if a, ok := firstUsable(addrs, true); ok {
@@ -96,6 +129,29 @@ func DetectNetInfo() NetInfo {
 				ni.VPNActive, ni.VPNIf = true, name
 			}
 		}
+	}
+	// Prefer the cellular interface iOS itself uses for internet traffic;
+	// other pdp_ip interfaces are often carrier-only (IMS/voice, MMS).
+	pick := -1
+	for i, c := range cells {
+		if c.name == ni.DefaultIf {
+			pick = i
+			break
+		}
+	}
+	if pick < 0 {
+		for i, c := range cells {
+			if c.ip.Is4() {
+				pick = i
+				break
+			}
+		}
+	}
+	if pick < 0 && len(cells) > 0 {
+		pick = 0
+	}
+	if pick >= 0 {
+		ni.CellularIf, ni.CellularIP, ni.CellularIdx = cells[pick].name, cells[pick].ip.String(), cells[pick].idx
 	}
 	return ni
 }
