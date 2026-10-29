@@ -1,0 +1,80 @@
+name: iOS app (Hotspot WG)
+
+on:
+  push:
+    paths:
+      - "ios-app/**"
+      - ".github/workflows/ios-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ios-app/core/go.mod
+          cache-dependency-path: ios-app/core/go.sum
+
+      - name: Test WireGuard core
+        working-directory: ios-app/core
+        continue-on-error: true
+        run: go test ./engine/ -count=1 -v -timeout 180s
+
+      - name: Build WGCore.xcframework (gomobile)
+        working-directory: ios-app/core
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          gomobile bind -target=ios -iosversion=16.0 -ldflags="-s -w" \
+            -o ../HotspotWG/Frameworks/WGCore.xcframework ./wgcore
+          ls ../HotspotWG/Frameworks/WGCore.xcframework
+
+      - name: Generate Xcode project
+        working-directory: ios-app/HotspotWG
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build unsigned app
+        working-directory: ios-app/HotspotWG
+        run: |
+          set -o pipefail
+          xcodebuild -project HotspotWG.xcodeproj -scheme HotspotWG \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: .*Sources|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/HotspotWG.app || { tail -100 build.log; exit 1; }
+
+      - name: Package .ipa
+        working-directory: ios-app/HotspotWG
+        run: |
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/HotspotWG.app Payload/
+          zip -qry HotspotWG.ipa Payload
+          ls -la HotspotWG.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HotspotWG-ipa
+          path: ios-app/HotspotWG/HotspotWG.ipa
+
+      - name: Publish release (for Feather)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: hotspotwg-build-${{ github.run_number }}
+          name: Hotspot WG build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: ios-app/HotspotWG/HotspotWG.ipa
+          body: |
+            Unsigned build. On your iPhone: long-press **HotspotWG.ipa** below → Copy Link,
+            then in Feather → Library → + → Import from URL, and sign with your certificate.

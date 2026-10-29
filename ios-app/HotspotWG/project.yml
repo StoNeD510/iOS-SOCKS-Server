@@ -1,0 +1,58 @@
+name: HotspotWG
+options:
+  bundleIdPrefix: com.stoned510
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_BITCODE: NO
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+targets:
+  HotspotWG:
+    type: application
+    scheme: {}
+    platform: iOS
+    sources:
+      - Sources
+      - path: Resources
+        optional: true
+    dependencies:
+      - framework: Frameworks/WGCore.xcframework
+        embed: false
+      - sdk: libresolv.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.stoned510.hotspotwg
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        OTHER_LDFLAGS: ["-lresolv"]
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Hotspot WG
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        UIBackgroundModes:
+          - audio
+          - location
+        NSLocalNetworkUsageDescription: Lets devices on your Personal Hotspot connect to the WireGuard server.
+        NSBonjourServices:
+          - _hotspotwg._udp
+        NSLocationWhenInUseUsageDescription: Optional extra keep-alive so the server keeps running in the background. Your location is not stored or sent anywhere.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Optional extra keep-alive so the server keeps running in the background. Your location is not stored or sent anywhere.
+        ITSAppUsesNonExemptEncryption: false

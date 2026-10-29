@@ -1,2 +1,8 @@
 *.pyc
 .DS_Store
+ios-app/HotspotWG/Frameworks/
+ios-app/HotspotWG/HotspotWG.xcodeproj/
+ios-app/HotspotWG/Info.plist
+ios-app/HotspotWG/build/
+ios-app/HotspotWG/Payload/
+*.ipa
