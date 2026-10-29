@@ -1,3 +1,17 @@
+# Hotspot WG (native iOS app, no proxy setup)
+
+`ios-app/` contains a standalone iOS app that replaces the Pythonista script for hotspot use. It runs a **WireGuard server** on the phone and re-sends every TCP connection, UDP packet (games included) and ping from the phone itself, so all traffic leaves through the phone's cellular IP. Clients need the free WireGuard app instead of per-app proxy settings or SSTap.
+
+**Install:** grab `HotspotWG.ipa` from the latest *Hotspot WG build* release, import it into Feather and sign it with your certificate. GitHub Actions builds it on every push to `ios-app/`.
+
+**Use:**
+1. Turn on Personal Hotspot, open Hotspot WG and tap **Start**. Allow Local Network access when asked.
+2. Tap **Add device** for each device.
+3. iPhone or iPad: in the WireGuard app tap + → *Create from QR code* and scan the device's QR.
+4. Laptop: join the hotspot, open `http://172.20.10.1:8080`, download the device's `.conf`, then in WireGuard choose *Import tunnel(s) from file* → *Activate*.
+
+The app pins outbound traffic to the cellular interface unless a VPN is running on the phone, in which case traffic goes through the VPN (same as `socks5.py`). It stays alive in the background with the same silent-audio trick.
+
 # What
 
 A simple HTTP/SOCKS proxy designed to run on Pythonista on iOS, letting you fake-tether your devices to a phone.
