@@ -58,7 +58,11 @@ jobs:
         run: |
           rm -rf Payload && mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/HotspotWG.app Payload/
-          zip -qry HotspotWG.ipa Payload
+          # Ad-hoc sign so the binary has a code-signature slot; Feather re-signs it.
+          codesign --force --sign - --timestamp=none Payload/HotspotWG.app
+          codesign -dv Payload/HotspotWG.app 2>&1 | head -5
+          rm -f HotspotWG.ipa
+          zip -qr HotspotWG.ipa Payload
           ls -la HotspotWG.ipa
 
       - uses: actions/upload-artifact@v4
