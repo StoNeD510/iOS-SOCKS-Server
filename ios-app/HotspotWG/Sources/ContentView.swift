@@ -77,6 +77,7 @@ struct ContentView: View {
 
     private var statsSection: some View {
         Section("Traffic") {
+            LabeledContent("Right now", value: "↓ \(formatBytes(store.rateDown))/s  ↑ \(formatBytes(store.rateUp))/s")
             LabeledContent("Down / Up", value: "\(formatBytes(store.status.bytesDown)) / \(formatBytes(store.status.bytesUp))")
             LabeledContent("TCP connections", value: "\(store.status.tcpActive) open, \(store.status.tcpTotal) total")
             LabeledContent("UDP flows", value: "\(store.status.udpFlows)")

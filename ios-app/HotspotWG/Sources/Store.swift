@@ -73,6 +73,9 @@ final class Store: ObservableObject {
     @Published var busy = false
     @Published var lastError: String?
     @Published var logs = ""
+    @Published var rateDown: Int64 = 0 // bytes/s through the tunnel
+    @Published var rateUp: Int64 = 0
+    private var lastSample: (date: Date, down: Int64, up: Int64)?
 
     let keepAlive = KeepAlive()
     private var timer: Timer?
@@ -187,6 +190,16 @@ final class Store: ObservableObject {
         dec.keyDecodingStrategy = .convertFromSnakeCase
         if let data = json.data(using: .utf8), let st = try? dec.decode(CoreStatus.self, from: data) {
             status = st
+            let now = Date()
+            if st.running, let last = lastSample, now.timeIntervalSince(last.date) > 0.5 {
+                let dt = now.timeIntervalSince(last.date)
+                rateDown = max(0, Int64(Double(st.bytesDown - last.down) / dt))
+                rateUp = max(0, Int64(Double(st.bytesUp - last.up) / dt))
+            } else if !st.running {
+                rateDown = 0
+                rateUp = 0
+            }
+            lastSample = (now, st.bytesDown, st.bytesUp)
         }
         logs = WgcoreLogs()
     }

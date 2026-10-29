@@ -28,8 +28,9 @@ type egress struct {
 }
 
 func newEgress(bindCellular bool, log *ringLog) *egress {
-	e := &egress{bindCellular: bindCellular, log: log}
+	e := &egress{bindCellular: bindCellular, log: log, nat64Checked: time.Now()}
 	e.refresh()
+	go e.discoverNAT64() // learn the prefix up front, off the packet path
 	return e
 }
 
@@ -148,26 +149,34 @@ func (e *egress) unsynth(v6 netip.Addr) (netip.Addr, bool) {
 	return netip.AddrFrom4([4]byte(b[12:16])), true
 }
 
+// nat64Prefix never blocks: it returns what is known now and, if nothing is
+// known, starts a background lookup (it is called from the packet path).
 func (e *egress) nat64Prefix() netip.Prefix {
 	e.natMu.Lock()
 	defer e.natMu.Unlock()
-	if e.nat64.IsValid() || time.Since(e.nat64Checked) < 2*time.Minute {
-		return e.nat64
+	if !e.nat64.IsValid() && time.Since(e.nat64Checked) >= 2*time.Minute {
+		e.nat64Checked = time.Now()
+		go e.discoverNAT64()
 	}
-	e.nat64Checked = time.Now()
+	return e.nat64
+}
+
+func (e *egress) discoverNAT64() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip6", "ipv4only.arpa")
 	if err != nil {
-		return e.nat64
+		return
 	}
 	for _, ip := range ips {
 		b := ip.As16()
 		if b[12] == 192 && b[13] == 0 && b[14] == 0 && (b[15] == 170 || b[15] == 171) {
-			e.nat64 = netip.PrefixFrom(ip, 96).Masked()
-			e.log.Printf("egress: NAT64 prefix %s", e.nat64)
-			break
+			p := netip.PrefixFrom(ip, 96).Masked()
+			e.natMu.Lock()
+			e.nat64 = p
+			e.natMu.Unlock()
+			e.log.Printf("egress: NAT64 prefix %s", p)
+			return
 		}
 	}
-	return e.nat64
 }
