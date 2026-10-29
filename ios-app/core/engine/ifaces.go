@@ -123,11 +123,14 @@ func DetectNetInfo() NetInfo {
 			if a, ok := firstUsable(addrs, true); ok {
 				ni.WiFiIP = a.String()
 			}
-		case strings.HasPrefix(name, "utun"), strings.HasPrefix(name, "ipsec"):
-			if a, ok := firstUsable(addrs, true); ok && !ni.VPNActive {
-				_ = a
-				ni.VPNActive, ni.VPNIf = true, name
-			}
+		}
+	}
+	// A VPN only counts if iOS actually routes internet traffic through it.
+	// Carriers create ipsec*/utun* tunnels with IPv4 addresses for VoLTE and
+	// Wi-Fi Calling; those are not VPNs and must not disable cellular pinning.
+	for _, p := range []string{"utun", "ipsec", "ppp"} {
+		if strings.HasPrefix(ni.DefaultIf, p) {
+			ni.VPNActive, ni.VPNIf = true, ni.DefaultIf
 		}
 	}
 	// Prefer the cellular interface iOS itself uses for internet traffic;
