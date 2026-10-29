@@ -60,7 +60,7 @@ struct ContentView: View {
                 }
             }
             let net = store.status.net
-            LabeledContent("Hotspot", value: net.hotspotIp.isEmpty ? "Not on (turn on Personal Hotspot)" : net.hotspotIp)
+            LabeledContent("Hotspot", value: net.hotspotIp.isEmpty ? "172.20.10.1 · idle, waiting for a device" : "\(net.hotspotIp) · active")
             LabeledContent("Cellular", value: net.cellularIf.isEmpty ? "Not found" : "\(net.cellularIf)  \(net.cellularIp)")
             if net.vpnActive {
                 LabeledContent("Phone VPN", value: "\(net.vpnIf) — traffic goes through it")

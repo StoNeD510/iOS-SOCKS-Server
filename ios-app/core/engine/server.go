@@ -399,9 +399,9 @@ func (s *Server) Status() Status {
 		BytesDown:  s.bytesDown.Load(),
 		Uptime:     int64(time.Since(s.started).Seconds()),
 	}
-	if ni := s.netInfo.Load(); ni != nil {
-		st.Net = *ni
-	}
+	// Re-read interfaces on every status poll: iOS only creates the hotspot
+	// bridge while a client is connected or the Hotspot settings page is open.
+	st.Net = DetectNetInfo()
 	s.egress.mu.RLock()
 	st.EgressIf = s.egress.ifName
 	if st.EgressIf == "" {
