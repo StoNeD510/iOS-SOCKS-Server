@@ -61,6 +61,7 @@ struct CoreStatus: Codable {
     var bytesUp: Int64 = 0
     var bytesDown: Int64 = 0
     var uptime: Int64 = 0
+    var webError: String = ""
     var peers: [PeerStatus]? = nil
 }
 

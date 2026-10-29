@@ -70,6 +70,14 @@ struct ContentView: View {
                 LabeledContent("Listening", value: "\(store.endpointHost):\(store.state.settings.listenPort) UDP")
                 LabeledContent("Traffic exits via", value: store.status.egressIf)
             }
+            if store.running && store.state.settings.webPageEnabled {
+                if store.status.webError.isEmpty {
+                    LabeledContent("Config page", value: "http://\(store.endpointHost):\(store.state.settings.webPort)")
+                } else {
+                    Text("Config page failed: \(store.status.webError). Change its port in Settings.")
+                        .foregroundStyle(.orange).font(.footnote)
+                }
+            }
             if let err = store.lastError {
                 Text(err).foregroundStyle(.red).font(.footnote)
             }

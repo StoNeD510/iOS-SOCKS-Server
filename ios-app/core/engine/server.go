@@ -73,6 +73,7 @@ type Server struct {
 	dnsUpstreams []netip.AddrPort
 	dnsSem       chan struct{}
 
+	webErr    string
 	started   time.Time
 	netInfo   atomic.Pointer[NetInfo]
 	tcpActive atomic.Int64
@@ -160,6 +161,7 @@ func Start(cfg Config, log *ringLog) (*Server, error) {
 	if cfg.WebPort > 0 {
 		s.web, err = startWeb(s, cfg.WebPort)
 		if err != nil {
+			s.webErr = err.Error()
 			log.Printf("config page: %v", err)
 		} else {
 			log.Printf("config page on port %d", cfg.WebPort)
@@ -255,6 +257,19 @@ func (s *Server) Stop() {
 	s.log.Printf("stopped")
 }
 
+// isPhoneAddr reports whether a is one of the phone's own hotspot addresses.
+func (s *Server) isPhoneAddr(a netip.Addr) bool {
+	if a == netip.AddrFrom4([4]byte{172, 20, 10, 1}) {
+		return true
+	}
+	if ni := s.netInfo.Load(); ni != nil && ni.HotspotIP != "" {
+		if h, err := netip.ParseAddr(ni.HotspotIP); err == nil && h == a {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) housekeeping() {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -305,7 +320,10 @@ func (s *Server) handleTCP(r *tcp.ForwarderRequest) {
 	switch {
 	case dst.Addr() == s.gateway && dst.Port() == 53 && len(s.dnsUpstreams) > 0:
 		out, err = s.egress.DialTCP(ctx, s.dnsUpstreams[0])
-	case dst.Addr() == s.gateway:
+	case dst.Addr() == s.gateway || s.isPhoneAddr(dst.Addr()):
+		// The phone itself (e.g. the config page at 172.20.10.1:8080 opened
+		// while the tunnel is active): serve it locally, don't send it out
+		// the cellular interface.
 		out, err = (&net.Dialer{}).DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", dst.Port()))
 	case dropDestination(dst.Addr()):
 		err = errors.New("blocked destination")
@@ -384,6 +402,7 @@ type Status struct {
 	BytesUp    int64        `json:"bytes_up"`
 	BytesDown  int64        `json:"bytes_down"`
 	Uptime     int64        `json:"uptime"`
+	WebError   string       `json:"web_error"`
 	Peers      []PeerStatus `json:"peers"`
 }
 
@@ -398,6 +417,7 @@ func (s *Server) Status() Status {
 		BytesUp:    s.bytesUp.Load(),
 		BytesDown:  s.bytesDown.Load(),
 		Uptime:     int64(time.Since(s.started).Seconds()),
+		WebError:   s.webErr,
 	}
 	// Re-read interfaces on every status poll: iOS only creates the hotspot
 	// bridge while a client is connected or the Hotspot settings page is open.
